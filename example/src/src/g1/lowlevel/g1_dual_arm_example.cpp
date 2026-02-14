@@ -233,6 +233,7 @@ class G1Example : public rclcpp::Node {
   DataBuffer<ImuState> imu_state_buffer_;
 
   rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowcmd_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr feedback_pub_;
   rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr
       lowstate_subscriber_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
@@ -243,6 +244,7 @@ class G1Example : public rclcpp::Node {
   std::shared_ptr<unitree::robot::g1::MotionSwitchClient> client_;
   std::thread thread_;
   sensor_msgs::msg::JointState joint_state_msg_;
+  sensor_msgs::msg::JointState feedback_msg_;
 
  public:
   explicit G1Example()
@@ -266,6 +268,8 @@ class G1Example : public rclcpp::Node {
       // Initialize publishers and subscribers
       lowcmd_publisher_ =
           this->create_publisher<unitree_hg::msg::LowCmd>("lowcmd", 10);
+      feedback_pub_ =
+          this->create_publisher<sensor_msgs::msg::JointState>("feedback", 10);
       lowstate_subscriber_ =
           this->create_subscription<unitree_hg::msg::LowState>(
               "lowstate", 10,
@@ -379,8 +383,13 @@ class G1Example : public rclcpp::Node {
     for (int i = 0; i < G1_NUM_MOTOR; ++i) {
       ms_tmp.q.at(i) = msg->motor_state[i].q;
       ms_tmp.dq.at(i) = msg->motor_state[i].dq;
+      auto it = std::next(joint_index_map.begin(), i);
+      feedback_msg_.name[i] = it->first;
+      feedback_msg_.position[i] = msg->motor_state[i].q;
+      feedback_msg_.velocity[i] = msg->motor_state[i].dq;
     }
     motor_state_buffer_.SetData(ms_tmp);
+    feedback_pub_->publish(feedback_msg_);
 
     // get imu state
     ImuState imu_tmp;
