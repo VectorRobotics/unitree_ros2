@@ -16,6 +16,8 @@
 #include <unitree_hg/msg/low_state.hpp>
 
 #include "g1/g1_motion_switch_client.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+
 using namespace std::chrono_literals;
 
 const int G1_NUM_MOTOR = 29;
@@ -76,24 +78,96 @@ const std::array<MotorType, G1_NUM_MOTOR> G1MotorType{
     // clang-format on
 };
 
-enum PRorAB { PR = 0, AB = 1 };
+enum PRorAB { PR = 1, AB = 0 };
 
-enum G1JointValidIndex {
+// enum G1JointValidIndex {
+//   LEFT_SHOULDER_PITCH = 15,
+//   LEFT_SHOULDER_ROLL = 16,
+//   LEFT_SHOULDER_YAW = 17,
+//   LEFT_ELBOW = 18,
+//   LEFT_WRIST_ROLL = 19,
+//   LEFT_WRIST_PITCH = 20,
+//   LEFT_WRIST_YAW = 21,
+//   RIGHT_SHOULDER_PITCH = 22,
+//   RIGHT_SHOULDER_ROLL = 23,
+//   RIGHT_SHOULDER_YAW = 24,
+//   RIGHT_ELBOW = 25,
+//   RIGHT_WRIST_ROLL = 26,
+//   RIGHT_WRIST_PITCH = 27,
+//   RIGHT_WRIST_YAW = 28
+// };
+
+enum G1JointIndex {
+  LEFT_HIP_PITCH = 0,
+  LEFT_HIP_ROLL = 1,
+  LEFT_HIP_YAW = 2,
+  LEFT_KNEE = 3,
+  LEFT_ANKLE_PITCH = 4,
+  LEFT_ANKLE_B = 4,
+  LEFT_ANKLE_ROLL = 5,
+  LEFT_ANKLE_A = 5,
+  RIGHT_HIP_PITCH = 6,
+  RIGHT_HIP_ROLL = 7,
+  RIGHT_HIP_YAW = 8,
+  RIGHT_KNEE = 9,
+  RIGHT_ANKLE_PITCH = 10,
+  RIGHT_ANKLE_B = 10,
+  RIGHT_ANKLE_ROLL = 11,
+  RIGHT_ANKLE_A = 11,
+  WAIST_YAW = 12,
+  WAIST_ROLL = 13,   // NOTE INVALID for g1 23dof/29dof with waist locked
+  WAIST_A = 13,      // NOTE INVALID for g1 23dof/29dof with waist locked
+  WAIST_PITCH = 14,  // NOTE INVALID for g1 23dof/29dof with waist locked
+  WAIST_B = 14,      // NOTE INVALID for g1 23dof/29dof with waist locked
   LEFT_SHOULDER_PITCH = 15,
   LEFT_SHOULDER_ROLL = 16,
   LEFT_SHOULDER_YAW = 17,
   LEFT_ELBOW = 18,
   LEFT_WRIST_ROLL = 19,
-  LEFT_WRIST_PITCH = 20,
-  LEFT_WRIST_YAW = 21,
+  LEFT_WRIST_PITCH = 20,  // NOTE INVALID for g1 23dof
+  LEFT_WRIST_YAW = 21,    // NOTE INVALID for g1 23dof
   RIGHT_SHOULDER_PITCH = 22,
   RIGHT_SHOULDER_ROLL = 23,
   RIGHT_SHOULDER_YAW = 24,
   RIGHT_ELBOW = 25,
   RIGHT_WRIST_ROLL = 26,
-  RIGHT_WRIST_PITCH = 27,
-  RIGHT_WRIST_YAW = 28
+  RIGHT_WRIST_PITCH = 27,  // NOTE INVALID for g1 23dof
+  RIGHT_WRIST_YAW = 28     // NOTE INVALID for g1 23dof
 };
+
+std::map<std::string, G1JointIndex> joint_index_map = {
+  {"left_hip_pitch_joint", LEFT_HIP_PITCH},
+  {"left_hip_roll_joint", LEFT_HIP_ROLL},
+  {"left_hip_yaw_joint", LEFT_HIP_YAW},
+  {"left_knee_joint", LEFT_KNEE},
+  {"left_ankle_pitch_joint", LEFT_ANKLE_PITCH},
+  {"left_ankle_roll_joint", LEFT_ANKLE_ROLL},
+  {"right_hip_pitch_joint", RIGHT_HIP_PITCH},
+  {"right_hip_roll_joint", RIGHT_HIP_ROLL},
+  {"right_hip_yaw_joint", RIGHT_HIP_YAW},
+  {"right_knee_joint", RIGHT_KNEE},
+  {"right_ankle_pitch_joint", RIGHT_ANKLE_PITCH},
+  {"right_ankle_roll_joint", RIGHT_ANKLE_ROLL},
+  {"waist_yaw_joint", WAIST_YAW},
+  {"waist_roll_joint", WAIST_ROLL},
+  {"waist_pitch_joint", WAIST_PITCH},
+  {"left_shoulder_pitch_joint", LEFT_SHOULDER_PITCH},
+  {"left_shoulder_roll_joint", LEFT_SHOULDER_ROLL},
+  {"left_shoulder_yaw_joint", LEFT_SHOULDER_YAW},
+  {"left_elbow_joint", LEFT_ELBOW},
+  {"left_wrist_roll_joint", LEFT_WRIST_ROLL},
+  {"left_wrist_pitch_joint", LEFT_WRIST_PITCH},
+  {"left_wrist_yaw_joint", LEFT_WRIST_YAW},
+  {"right_shoulder_pitch_joint", RIGHT_SHOULDER_PITCH},
+  {"right_shoulder_roll_joint", RIGHT_SHOULDER_ROLL},
+  {"right_shoulder_yaw_joint", RIGHT_SHOULDER_YAW},
+  {"right_elbow_joint", RIGHT_ELBOW},
+  {"right_wrist_roll_joint", RIGHT_WRIST_ROLL},
+  {"right_wrist_pitch_joint", RIGHT_WRIST_PITCH},
+  {"right_wrist_yaw_joint", RIGHT_WRIST_YAW}
+};
+
+
 
 inline uint32_t Crc32Core(const uint32_t *ptr, uint32_t len) {
   uint32_t xbit = 0;
@@ -124,7 +198,8 @@ float GetMotorKp(MotorType type) {
   switch (type) {
     case GEARBOX_S:
     case GEARBOX_M:
-      return 40;
+      // return 40;
+      return 10;
     case GEARBOX_L:
       return 100;
     default:
@@ -137,7 +212,8 @@ float GetMotorKd(MotorType type) {
     case GEARBOX_S:
     case GEARBOX_M:
     case GEARBOX_L:
-      return 1;
+      // return 1;
+      return 2;
     default:
       return 0;
   }
@@ -159,15 +235,18 @@ class G1Example : public rclcpp::Node {
   rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowcmd_publisher_;
   rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr
       lowstate_subscriber_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
+      joint_state_subscriber_;
   rclcpp::TimerBase::SharedPtr command_writer_timer_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   std::string resource_dir_;
   std::shared_ptr<unitree::robot::g1::MotionSwitchClient> client_;
   std::thread thread_;
+  sensor_msgs::msg::JointState joint_state_msg_;
 
  public:
-  explicit G1Example(std::string resource_dir)
-      : Node("g1_example"), resource_dir_(std::move(resource_dir)) {
+  explicit G1Example()
+      : Node("g1_example") {
     client_ = std::make_shared<unitree::robot::g1::MotionSwitchClient>(this);
 
     thread_ = std::thread([this]() {
@@ -192,6 +271,12 @@ class G1Example : public rclcpp::Node {
               "lowstate", 10,
               [this](const unitree_hg::msg::LowState::SharedPtr msg) {
                 LowStateHandler(msg);
+              });
+      joint_state_subscriber_ =
+          this->create_subscription<sensor_msgs::msg::JointState>(
+              "joint_states", 10,
+              [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
+                JointStateHandler(msg);
               });
 
       // Initialize timers
@@ -314,6 +399,14 @@ class G1Example : public rclcpp::Node {
     }
   }
 
+  void JointStateHandler(const sensor_msgs::msg::JointState::SharedPtr msg) {
+    joint_state_msg_ = *msg;
+
+    for (size_t i = 0; i < joint_state_msg_.name.size(); ++i) {
+      // RCLCPP_INFO(this->get_logger(), "Name: %s, Position: %f", joint_state_msg_.name.at(i).c_str(), joint_state_msg_.position.at(i));
+    }
+  }
+
   void LowCommandWriter() {
     auto dds_low_command = unitree_hg::msg::LowCmd();
     dds_low_command.mode_pr = mode_;
@@ -333,6 +426,7 @@ class G1Example : public rclcpp::Node {
  
       get_crc(dds_low_command);
       lowcmd_publisher_->publish(dds_low_command);
+      // RCLCPP_INFO(this->get_logger(), "Command publish");
     }
   }
 
@@ -340,69 +434,49 @@ class G1Example : public rclcpp::Node {
     MotorCommand motor_command_tmp;
     const std::shared_ptr<const MotorState> ms = motor_state_buffer_.GetData();
 
-    if (ms) {
+    if (ms && joint_state_msg_.name.size()>0) {
       time_ += control_dt_;
-      if (time_ < duration_) {
-        // [Stage 1]: set robot to zero posture
-        for (int i = 0; i < G1_NUM_MOTOR; ++i) {
-          double ratio = std::clamp(time_ / duration_, 0.0, 1.0);
+        for (int i = 0; i < joint_state_msg_.name.size(); ++i) {
+          int idx = joint_index_map[joint_state_msg_.name.at(i)];
 
-          double q_des = 0;
-          motor_command_tmp.tau_ff.at(i) = 0.0;
-          motor_command_tmp.q_target.at(i) =
-              static_cast<float>((q_des - ms->q.at(i)) * ratio + ms->q.at(i));
-          motor_command_tmp.dq_target.at(i) = 0.0;
-          motor_command_tmp.kp.at(i) = GetMotorKp(G1MotorType[i]);
-          motor_command_tmp.kd.at(i) = GetMotorKd(G1MotorType[i]);
-        }
-      } else {
-        // [Stage 2]: tracking the offline trajectory
-        auto frame_index =
-            static_cast<size_t>((time_ - duration_) / control_dt_);
-        if (frame_index >= frames_data_.size()) {
-          frame_index = frames_data_.size() - 1;
-          time_ = 0.0;  // RESET
-        }
+          RCLCPP_INFO(this->get_logger(), "Index: %d, Name: %s, Position: %f, Map: %d",
+            i, 
+            joint_state_msg_.name.at(i).c_str(), 
+            joint_state_msg_.position.at(idx), 
+            idx
+          );
 
-        if (frame_index % 100 == 0) {
-          RCLCPP_INFO(this->get_logger(), "Frame Index: %zu", frame_index);
+          motor_command_tmp.tau_ff.at(idx) = joint_state_msg_.effort.at(i);
+          motor_command_tmp.q_target.at(idx) = joint_state_msg_.position.at(i);
+          motor_command_tmp.dq_target.at(idx) = joint_state_msg_.velocity.at(i);
+          motor_command_tmp.kp.at(idx) = GetMotorKp(G1MotorType[idx]);
+          motor_command_tmp.kd.at(idx) = GetMotorKd(G1MotorType[idx]);
         }
-
-        for (int i = 0; i < G1_NUM_MOTOR; ++i) {
-          size_t const index_in_frame = i - LEFT_SHOULDER_PITCH;
-          auto value =
-              static_cast<float>(frames_data_[frame_index][index_in_frame]);
-          motor_command_tmp.q_target.at(i) =
-              (i >= LEFT_SHOULDER_PITCH) ? value : 0.0F;
-          motor_command_tmp.dq_target.at(i) = 0.0;
-          motor_command_tmp.tau_ff.at(i) = 0.0;
-          motor_command_tmp.kp.at(i) = GetMotorKp(G1MotorType[i]);
-          motor_command_tmp.kd.at(i) = GetMotorKd(G1MotorType[i]);
-        }
-      }
-
       motor_command_buffer_.SetData(motor_command_tmp);
     }
+    // RCLCPP_INFO(this->get_logger(), "Command added");
   }
 };
 
 int main(int argc, char const *argv[]) {
   rclcpp::init(argc, argv);
 
-  if (argc < 2) {
-    RCLCPP_FATAL(rclcpp::get_logger("main"),
-                 "Usage: %s <resource_directory> [behavior_name], for example: g1_dual_arm_example ./behavior_lib/ motion", argv[0]);
-    return 1;
-  }
+  // if (argc < 2) {
+  //   RCLCPP_FATAL(rclcpp::get_logger("main"),
+  //                "Usage: %s <resource_directory> [behavior_name], revolution
+  // for example: g1_dual_arm_example ./behavior_lib/ motion", argv[0]);
+  //   return 1;
+  // }
 
-  std::string resource_dir = argv[1];
-  auto node = std::make_shared<G1Example>(resource_dir);
+  // std::string resource_dir = argv[1];
+  // auto node = std::make_shared<G1Example>(resource_dir);
+  auto node = std::make_shared<G1Example>();
 
   // Optional: Load behavior if specified
-  if (argc > 2) {
-    std::string behavior_name = argv[2];
-    node->loadBehaviorLibrary(behavior_name);
-  }
+  // if (argc > 2) {
+  //   std::string behavior_name = argv[2];
+  //   node->loadBehaviorLibrary(behavior_name);
+  // }
 
   rclcpp::spin(node);
   rclcpp::shutdown();
